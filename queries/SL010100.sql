@@ -1,0 +1,4 @@
+use ScaCompanyDB
+
+SELECT *
+FROM SL010100;

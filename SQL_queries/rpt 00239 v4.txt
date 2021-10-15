@@ -1,0 +1,138 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_Rpt00239_sel_v4]    Script Date: 10/05/2021 10:39:31 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[SSRS_Rpt00239_sel_v4] 
+	@department			NVARCHAR(256),
+	@supplier			NVARCHAR(20)= NULL
+	
+AS	
+SET NOCOUNT ON
+BEGIN
+
+	SET NOCOUNT ON;
+	SET ANSI_WARNINGS OFF
+	
+DECLARE @command as NVARCHAR(4000)
+		,@warehouse as NVARCHAR(256)
+		,@Singlew as NVARCHAR(256)
+		,@AltProdGrp as NVARCHAR(256)
+		,@Singlea as bit
+		,@CurrentDay as NVARCHAR(2)
+		,@CurrentMonth as NVARCHAR(2)
+		,@CurrentYear as NVARCHAR (4)
+		,@LastYear as NVARCHAR (4)
+		,@LastYear_1 as NVARCHAR (4)
+		,@LastYear_2 as NVARCHAR (4)
+		,@EOL as NVARCHAR (10)
+		
+SELECT @CurrentDay =  rtrim(substring(cast(cast(datepart(dd,GETDATE()) as INT)+100 as char),2,2)) 		
+SELECT @CurrentMonth =  rtrim(substring(cast(cast(datepart(mm,GETDATE()) as INT)+100 as char),2,2)) 
+SELECT @LastYear = rtrim(cast(datepart(yyyy,DATEADD(m,-12,GETDATE())) as char))
+SELECT @LastYear_1 = rtrim(cast(datepart(yyyy,DATEADD(m,-24,GETDATE())) as char))
+SELECT @LastYear_2 = rtrim(cast(datepart(yyyy,DATEADD(m,-36,GETDATE())) as char))
+SELECT @CurrentYear = rtrim(cast(datepart(yyyy,GETDATE()) as char))
+SELECT @EOL = @CurrentYear + '-' + @CurrentMonth + '-' + @CurrentDay 
+
+IF exists (SELECT * FROM dbo.sysobjects WHERE id = object_id(N'[dbo].[#workdata239_1]') and OBJECTPROPERTY(id, N'IsUserTable') = 1)
+	DROP TABLE [dbo].[#workdata239_1]
+	
+create table #workData239_1
+	(
+		item				 nvarchar(35),	
+		description1	     nvarchar(35),
+		description2         nvarchar(35),
+		QtyLCUYTD			 numeric(20,8),
+		OnHand				 NUMERIC(20,8),
+		BackOrder			 NUMERIC(20,8),
+		OnOrder			     NUMERIC(20,8),
+		ROL					 NUMERIC(20,8),
+		AverageCost			 Numeric(20,8),
+		ExtProdGrp 			 NVARCHAR(20),
+		EndofLifeDate		 DATETIME,
+		SupplierCode		 NVARCHAR(10),
+		AltSupplierCode		 NVARCHAR(10),
+		AltProdGrp			 NVARCHAR(4),
+		Short				 Numeric(20,8),
+		Need			     Nvarchar(20),
+		QtyPerMonth			 Numeric(20,8),
+		QtyPrevYr			 Numeric(20,8),	
+		QtyPrevYr_1			 Numeric(20,8),	
+		QtyYtd				 Numeric(20,8),
+	    LastPurDate          DATETIME,
+	    Department           NVARCHAR(50)  
+		)		
+		
+SELECT @AltProdGrp = (Select AlternateProductGroup From KK_Departments Where Department = @Department)
+SELECT @Singlea = (Select Singlea From KK_Departments Where Department = @Department)
+SELECT @warehouse = (Select Warehouse From KK_Departments Where Department = @Department)
+SELECT @Singlew = (Select Singlew From KK_Departments Where Department = @Department)
+IF @supplier=''
+Select @supplier=NULL
+
+SELECT @Command = 'INSERT INTO #workData239_1 '
+SELECT @Command = @command + 'SELECT '
+SELECT @Command = @command + 'SC01001, SC01002, SC01003, SC01086, SC01042, SC01044, SC01045, '
+SELECT @Command = @command + 'SC01061, SC01052, SC01023, SC01123,SC01058, SC01038, 0, ''__________'', NULL, NULL, NULL, NULL, SC01051,0 ' --NULL,SC01060,SC01004,SC01005,SC01051 '
+SELECT @command = @command + 'FROM ScaCompanyDB..SC010100 '
+
+IF @supplier IS NOT NULL
+SELECT @command = @command +  'WHERE SC01058   =  ''' + @supplier  +  ''' '
+ELSE
+SELECT @command = @command + 'WHERE SC01023 <> ''OBSOLETE'' ' 
+
+SELECT @command = @command + 'AND SC01023 <> ''OBSOLETE'' ' 
+SELECT @command = @command + 'AND SC01023 <> ''DNR'' ' 
+SELECT @command = @command + 'AND SC01038 IN (''II'',''IS'',''IC'',''CR'',''CHS'',''CHI'',''SE'',''CHR'') '
+SELECT @command = @command + 'AND SC01123 > ''' + @EOL  +  ''' '
+SELECT @command = @command + 'ORDER BY SC01001'
+
+EXEC (@command)
+
+UPDATE #workData239_1 
+	SET Short = ABS(OnHand - ROL)
+    WHERE ROL > ONhand
+    
+SELECT @command = 'UPDATE #workData239_1 '
+SELECT @command = @command + 'SET QtyPrevYr = (SELECT (ABS(SUM(Qty))) FROM ScaCompanyDB..QtyYTD WHERE cast(datepart(yyyy,TDate) as char) = ''' + @LastYear + ''' AND TType = ''01'' AND StockCode = item Collate Database_Default)'
+EXEC (@command) 
+
+SELECT @command = 'UPDATE #workData239_1 '
+SELECT @command = @command + 'SET QtyPrevYr_1 = (SELECT (ABS(SUM(Qty))) FROM ScaCompanyDB..QtyYTD WHERE cast(datepart(yyyy,TDate) as char) = ''' + @LastYear_1 + ''' AND TType = ''01'' AND StockCode = item Collate Database_Default)'
+EXEC (@command) 
+
+
+SELECT @command = 'UPDATE #workData239_1 '
+SELECT @command = @command + 'SET QtyYtd = (SELECT ABS(SUM(Qty)) FROM ScaCompanyDB..QtyYTD WHERE cast(datepart(yyyy,TDate) as char) = ''' + @CurrentYear + ''' AND TType = ''01'' AND StockCode = item Collate Database_Default)'
+
+EXEC (@command)
+
+UPDATE #workData239_1 
+	SET QtyPerMonth = (QtyYtd / @CurrentMonth)
+
+UPDATE #workData239_1 
+SET Department = 'Industrial'
+WHERE AltProdGrp IN ('II','IS','IC')
+
+UPDATE #workData239_1 
+SET Department = 'Retail'
+WHERE AltProdGrp IN ('CR')
+
+UPDATE #workData239_1 
+SET Department = 'Commercial'
+WHERE AltProdGrp IN ('CS','CI')
+
+UPDATE #workData239_1 
+SET Department = 'Service'
+WHERE AltProdGrp IN ('SE')
+
+	
+IF @supplier IS NOT NULL
+ Select * from  #workData239_1 where SupplierCode collate database_default IN (Select Value from dbo.Split(',',@supplier) ) --and Department <> 'NA'
+ELSE
+Select * from  #workData239_1
+
+END

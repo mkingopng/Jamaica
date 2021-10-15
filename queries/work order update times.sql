@@ -1,0 +1,4 @@
+Select MP64001 --WORK ORDER NUMBER
+, 
+
+from ScaCompanyDB..MP640100

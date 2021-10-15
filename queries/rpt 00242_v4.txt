@@ -1,0 +1,159 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_RPT00242_v4]    Script Date: 10/05/2021 10:43:44 ******/
+SET ANSI_NULLS OFF
+GO
+SET QUOTED_IDENTIFIER OFF
+GO
+ALTER PROCEDURE [dbo].[SSRS_RPT00242_v4]
+	@Department	 as NVARCHAR(256),
+	@StartDate as Datetime=NULL,
+	@EndDate as Datetime=NULL
+		
+	AS
+	
+	DECLARE @c as NVARCHAR(4000)
+		,@year as Integer
+		,@cmd as VARCHAR(8000)
+		,@warehouse as NVARCHAR(256)
+		,@Singlew as NVARCHAR(256)
+		,@AltProdGrp as NVARCHAR(64)
+		,@CostCentre as NVARCHAR(2)
+		,@Singlea as bit
+		--,@Singlec as bit
+
+	IF (@StartDate) IS NULL
+	BEGIN
+		SELECT @year = DATEPART(year, GETDATE())
+		SELECT @year = @year -1
+		SELECT @StartDate =CAST(@year as CHAR(4)) + '-01-01'
+		SELECT @EndDate = GETDATE()
+	END
+	
+	-- This is to address SSRS's inability to support multiple variable paramaters when using stored procedures
+	-- The users supplies the Division/Department and we apply the cost centres
+IF @Department='All Departments'
+Select @Department=NULL
+IF @Department<>NULL
+Begin
+SELECT @AltProdGrp = (Select AlternateProductGroup From IscalaAnalysis..KK_Departments Where Department = @Department)
+SELECT @Singlea = (Select Singlea From IscalaAnalysis..KK_Departments Where Department = @Department)
+SELECT @warehouse = (Select Warehouse From IscalaAnalysis..KK_Departments Where Department = @Department)
+SELECT @Singlew = (Select Singlew From IscalaAnalysis..KK_Departments Where Department = @Department)
+-- SELECT @Singlec = (Select Single From IscalaAnalysis..KK_Departments Where Department = @Department)
+SELECT @CostCentre = (Select CostCentre From IscalaAnalysis..KK_Departments Where Department = @Department)
+End
+	
+	create table #outstandingorders
+	(
+		o_order			nvarchar(20),	
+		o_sordertype	integer null,
+		o_cuscode   	nvarchar(10) null,		
+		o_description	nvarchar(25) null,
+		o_stockcode		nvarchar(35) null,
+		o_qtyordered	numeric (20,8) null,
+		o_date			datetime null,
+		o_invoice		nvarchar(10) null,
+		o_unitprice		numeric (20,8) null,
+		o_qtyshipped	numeric (20,8) null,	
+		o_deliverydate	datetime null,
+		o_qtyonhand		numeric(20,8) null,
+		o_warehouse		nvarchar(6) null,
+		o_altprodgrp	nvarchar(20) null,
+		o_costcentre    nvarchar(50) null,
+		o_custpono		nvarchar(20), -- added 12/09/2018 Isaac
+		o_salesman		nvarchar(3),  --added 20/01/2019
+		o_discount		numeric(12)
+	)
+
+	INSERT INTO #outstandingorders
+	SELECT 	OR01001,				
+			OR01002,	
+			OR01003,
+			NULL,
+			OR03005,
+			OR03011,
+			OR01015,
+			OR01021,
+			OR03008,
+			OR03012,
+			OR01016,
+			NULL,
+			OR03046,
+			NULL,
+			SUBSTRING(OR01025,7,3),	
+			OR01072, -- added 12/09/2018
+			OR01019,  --added 20/01/2019
+			OR03060
+	FROM	OR010100, OR030100
+	WHERE 	OR01001 = OR03001
+	AND		OR01002 >0
+   
+	UPDATE #outstandingorders
+	SET o_description = SC01002,  o_altprodgrp =SC01038
+	FROM SC010100
+	WHERE o_stockcode = SC01001 COLLATE DATABASE_DEFAULT --and o_costcentre NOT IN ('38','39')
+	
+	--UPDATE #outstandingorders
+	--SET o_description = SC01002,  o_altprodgrp =SC01039
+	--FROM SC010100
+	--WHERE o_stockcode = SC01001 COLLATE DATABASE_DEFAULT and o_costcentre IN ('38','39')
+
+	UPDATE #outstandingorders
+	SET o_qtyonhand = SC03003
+	FROM SC030100
+	WHERE o_stockcode = SC03001 COLLATE DATABASE_DEFAULT
+	AND 	o_warehouse = SC03002  COLLATE DATABASE_DEFAULT
+
+    --UPDATE #outstandingorders
+    --SET o_custpo# = OR20072
+    --FROM OR200100
+    --WHERE o_cuscode = OR20003 COLLATE DATABASE_DEFAULT
+    --AND o_order = OR20001 COLLATE DATABASE_DEFAULT
+	
+	--SELECT  * from #outstandingorders where o_costcentre IN ('38','39')
+
+	IF @Department <> NULL
+	Begin
+	SELECT @c ='SELECT distinct ' 
+	SELECT @c = @c + 'a.SC01001,b.* '
+	SELECT @c = @c + '	FROM [ScaCompanyDB]..SC010100 a'
+	SELECT @c = @c + '	INNER JOIN    #outstandingorders b '
+	SELECT @c = @c + '	ON   a.SC01001 = b.o_stockcode collate database_default' 
+	SELECT @c = @c + '	INNER JOIN    [ScaCompanyDB]..SC030100 c '
+	SELECT @c = @c + '	ON   b.o_stockcode = c.SC03001 collate database_default ' 
+
+    IF @SingleA = 1 
+		SELECT @c = @c + 'And a.SC01038  =  ''' +  @AltProdGrp  +  ''' '
+		Else
+		SELECT @c = @c +  'AND a.SC01038  IN ' +  @AltProdGrp + ' '
+	    
+	IF @Singlew = 1 
+	  SELECT @c = @c +  'And b.o_warehouse  =  ''' +  @warehouse  +  ''' '
+	  Else
+	  SELECT @c = @c +  'AND b.o_warehouse  IN ' +  @warehouse + ' ' 
+	  
+	SELECT @c = @c +  'AND (b.o_date Between ''' +  CONVERT(VARCHAR(10), @StartDate, 111) +   ''' '
+    SELECT @c = @c +  'AND  '''  + CONVERT(VARCHAR(10), @EndDate, 111)  +  ''') '
+    --SELECT @c = @c + 'And b.o_costcentre  NOT IN (''38'',''39'')  '
+    SELECT @c = @c +  'Order by b.o_order ' 
+	EXEC (@c)
+    END 
+   
+   --IF @Department = 'Plastic Bottles & Caps POM'
+	--Begin
+	--SELECT @c ='SELECT * FROM  #outstandingorders where o_costcentre  =  ''39'' ' 
+	
+	--EXEC (@c)
+  --  END 
+  --  IF @Department = 'Plastic Bottles & Caps Lae'
+	--Begin
+	--SELECT @c ='SELECT * FROM  #outstandingorders where o_costcentre  =  ''38'' ' 
+	
+	--EXEC (@c)
+   -- END 
+   
+    Else
+    Begin
+    SELECT  * from #outstandingorders where o_date Between @StartDate and @EndDate order by o_order
+End

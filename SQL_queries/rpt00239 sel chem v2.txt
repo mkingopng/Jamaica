@@ -1,0 +1,71 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_Rpt00239_sel_chem_v2_trial]    Script Date: 10/04/2021 14:54:55 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+
+ALTER PROCEDURE [dbo].[SSRS_Rpt00239_sel_chem_v2_trial] 
+	@department			NVARCHAR(256),
+	@supplier			NVARCHAR(20)= NULL
+	--@warehouse_code			NVARCHAR(10)= NULL
+	
+AS	
+BEGIN
+	-- SET NOCOUNT ON added to prevent extra result sets from
+	-- interfering with SELECT statements.
+	SET NOCOUNT ON;
+	SET ANSI_WARNINGS OFF
+	
+DECLARE @command as NVARCHAR(4000)
+		,@warehouse as NVARCHAR(256)
+		,@Singlew as NVARCHAR(256)
+		,@AltProdGrp as NVARCHAR(256)
+		,@Singlea as bit
+		,@CurrentDay as NVARCHAR(2)
+		,@CurrentMonth as NVARCHAR(2)
+		,@CurrentYear as NVARCHAR (4)
+		,@LastYear as NVARCHAR (4)
+		,@EOL as NVARCHAR (10)
+
+
+
+Create table #workData239_2
+	(
+		item_2				 nvarchar(35),	
+		--description			 nvarchar(60),
+		--QtyLCUYTD			 numeric(20,8),
+		WH_2			     NVARCHAR(2),
+		OnHand_2			 NUMERIC(20,8),
+		BackOrder_2			 NUMERIC(20,8),
+		OnOrder_2		     NUMERIC(20,8),
+		ROL_2				 NUMERIC(20,8),
+		AverageCost_2		 Numeric(20,8),
+		--ExtProdGrp 			 NVARCHAR(20),
+		--EndofLifeDate		 DATETIME,
+		--SupplierCode		 NVARCHAR(10),
+		--AltProdGrp			 NVARCHAR(4),
+		Short_2				 Numeric(20,8),
+		Need_2			     Nvarchar(20),
+		QtyPerMonth			 Numeric(20,8),
+		QtyPrevYr			 Numeric(20,8),	
+		QtyYtd				 Numeric(20,8)
+		--SupplierStockCode	 NVARCHAR(35)
+		
+		)		
+
+SELECT @Command = 'INSERT INTO #workData239_2 '
+SELECT @Command = @command + 'SELECT '
+SELECT @Command = @command + 'SC01001, SC03002,SC03003, SC03005, SC03006, SC03010,SC03057,  0, ''__________'', NULL, NULL,NULL '
+SELECT @command = @command + 'FROM ScaCompanyDB..SC010100 '
+SELECT @command = @command + 'INNER JOIN ScaCompanyDB..SC030100 '
+
+SELECT @command = @command + 'ON SC01001=SC03001 ' 
+--SELECT @command = @command + 'LEFT OUTER JOIN ScaCompanyDB..QtyYTD ' 
+--SELECT @command = @command + 'ON (SC03001=StockCode) AND (SC03002=Wh) '
+--select SC01038 from ScaCompanyDB..SC010100 WHERE SC01038 in ('IS','II')
+SELECT @command = @command +  'AND SC03002 = ''47'' '
+EXEC (@command) 
+Select * from #workData239_2
+END

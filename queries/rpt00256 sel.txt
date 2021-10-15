@@ -1,0 +1,37 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_RPT00256_sel]    Script Date: 10/05/2021 10:46:43 ******/
+SET ANSI_NULLS OFF
+GO
+SET QUOTED_IDENTIFIER OFF
+GO
+ALTER PROCEDURE [dbo].[SSRS_RPT00256_sel]
+@Division			NVARCHAR(256) 
+-- 	List Credit Orders
+
+AS 
+
+	SELECT DL_Order#, OR20002, DL_StockCode,DL_Desc1, DL_Desc2, DL_Qty, DL_SalePrice,DL_CC, SC01038, Division, DL_Max, DL_Min, DL_Warehouse
+	INTO #workdata256
+	FROM KK_DailyOrders 
+	LEFT OUTER JOIN ScaCompanyDB.dbo.OR200100
+	ON DL_Order# = OR20001 COLLATE Database_Default
+	INNER JOIN ScaCompanyDB.dbo.SC010100
+	ON DL_StockCode = SC01001 COLLATE Database_Default
+	INNER JOIN KK_AltPrdGrp
+	ON SC01038 = AltPrdGrp COLLATE Database_Default
+	WHERE OR20002 = 8
+	ORDER BY Division
+	--SELECT * FROM #workdata256
+	IF @division = 'Lae Industrial'
+	SELECT * FROM #workdata256 WHERE DL_CC in ('10','12')
+Else if @division = 'Chemical' 
+	SELECT * FROM #workdata256 WHERE DL_CC in ('11','13','21')
+Else if @division = 'Retail' 
+	SELECT * FROM #workdata256 WHERE DL_CC in ('14','16','24')
+Else if @division = 'POM Industrial' 
+	SELECT * FROM #workdata256 WHERE DL_CC in ('20')
+Else if @division = 'Service' 
+	SELECT * FROM #workdata256 WHERE DL_CC in ('15','25')
+Else
+	SELECT * FROM #workdata256 WHERE DL_CC in ('10','11','12','13','14','15','16','20','21','24','25')

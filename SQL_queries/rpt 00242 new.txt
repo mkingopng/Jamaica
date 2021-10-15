@@ -1,0 +1,217 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_RPT00242_new]    Script Date: 10/05/2021 10:40:23 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER procedure [dbo].[SSRS_RPT00242_new] 
+		@StartDate as datetime = NULL,
+		@EndDate as datetime = NULL,
+		@Department as nvarchar(64)= NULL,
+		@Variation as char(1) = NULL
+as
+begin
+	set nocount on;
+	set ansi_nulls off;
+	
+	declare @year as integer, @sixmonthsago as datetime, @cmd as varchar(8000)
+
+	if (@StartDate) is null
+	begin
+		select @year = datepart(year, getdate())
+		select @year = @year -1
+		select @StartDate =cast(@year as CHAR(4)) + '-01-01'
+		select @EndDate = getdate()
+	end
+------------------------------------------------------------------------
+--insert create temporary data storage here	
+	create table #tempOS
+	(
+		Order#			nchar(10),
+		OrderType       integer,	
+		CustomerCode	nchar(10),		
+		CustomerName	nvarchar(35),
+		Description		nvarchar(25),
+		StockCode		nvarchar(35),
+		AltPrdGrp       nvarchar(4),
+		Warehouse		nvarchar(6),
+		OrderQtyOrder   numeric(20,8),
+		OrderDate		datetime,
+		Invoice			nvarchar(6),
+		UnitPrice		numeric(28,8),
+		QtyShipped		numeric(20,8),
+		DelDate			datetime,
+		ConfDate		datetime, -- 2019-06-20 added to address confirmed del date on stockline. Isaac
+		StockBal		numeric(20, 8),
+		StockReserved	numeric(20, 8),
+		CompanyStockBalance numeric(20,8),
+		O_CostCentre	varchar(2),
+		Value			numeric(28,8),
+		LineCount		integer,
+		FullFilledCount integer,
+		PotentialCount  integer,
+		Sman			nvarchar(3),
+		AccountCode		nvarchar(10),
+		AccountName		nvarchar(25),
+		O_Department    nvarchar(64),
+		StartDate		datetime,
+		EndDate			dateTime,
+		O_Division      nvarchar(50),
+		SupplierCode	nvarchar(10),
+		SupplierStockCode nvarchar(35),
+		O_CustPO		nvarchar(20), 
+		OnOrder         numeric(20,8),
+		ItemsIssued		numeric(20,8),
+		RunningBalance  numeric(20,8),
+		WH01            numeric(20,8),
+		WH14            numeric(20,8)
+	)
+	insert #tempOS
+	select
+	OR01001,
+	OR01002,
+	OR01003,
+	NULL,
+	SC01002,
+	OR03005,
+	SC01038,
+	OR03046, 
+	OR03011, 
+	OR01015, 
+	OR01021,  
+--	OR03008,
+	((OR03008)*((100-OR03018)*0.01)), -- Unit Price displayed inclusive of customer discount % (OR03018) Isaac 30/06/2021
+	OR03012,  
+	OR01016, 
+	OR03019, -- 2019-06-20 added to address confirmed del date on stockline. Isaac
+	SC03003, 
+	SC03004, 
+	0, 
+	substring(OR01025,7,2), 
+--	(OR03008 * OR03011), 
+	((OR03011)*((OR03008)*((100-OR03018)*0.01))), -- Order value inclusive of customer discount
+	1, 
+	0,0, 
+	OR01019, 
+	substring(SC01039,13,6), 
+	null,
+	null,
+	(select convert(varchar(10), @StartDate, 120) as [YYYY-MM-DD]),
+	(select convert(varchar(10), @EndDate, 120) as [YYYY-MM-DD]), 
+	null,
+	SC01058, 
+	SC01060, 
+	OR01072, 
+	0,0,0,0,0 
+    from   ScaCompanyDB..SC010100 
+    inner join ScaCompanyDB..SC030100 on SC01001=SC03001 
+    inner join ScaCompanyDB..OR030100 on (SC03001=OR03005) AND (SC03002=OR03046) 
+    inner join ScaCompanyDB..OR010100 on OR03001=OR01001 
+    where (OR01015 between (select convert(varchar(10), @StartDate, 120) as [YYYY-MM-DD]) AND  (select convert(varchar(10), @Enddate, 120) as [YYYY-MM-DD]) ) 
+    and OR01021 = '' and OR01002 IN ('1','4')
+	and not substring(OR01003,1,4) = 'INTR' 
+	and not substring(SC01039,13,6) = 'AIXFRU' 
+	and not substring(SC01039,13,6) = 'AIXPAL' 
+    
+	update #tempOS set CustomerName = SL01002 from ScaCompanyDB..SL010100 where CustomerCode = SL01001 collate database_default
+ 
+	update #tempOS set CompanyStockBalance  = (select sum(SC03003) from ScaCompanyDB..SC030100 where SC03001 = StockCode collate database_default) 
+ 
+	update #tempOS set AccountName = GL03003 from ScaCompanyDB..GL030110  where GL03002 = AccountCode collate database_default
+ 
+	update #tempOS set O_Department = Department, O_Division = Division from KK_Departments  where O_CostCentre =CostCentre collate database_default and SINGLE = 1 
+ 
+	update #tempOS set O_Department = 'Commercial POM', O_Division = 'COMMERCIAL' where O_CostCentre = '39'
+ 
+	update #tempOS
+	set OnOrder = (select sum(PC03010 - PC03012) from [ScaCompanyDB]..PC030100
+						inner join ScaCompanyDB..PC010100 on PC03001 = PC01001						
+						where PC03005 = StockCode collate database_default
+						and PC03010 <> PC03012
+--						and PC01015 > @sixmonthsago
+						and PC03010 > 0 )
+						
+ 
+	update #tempOS set OnOrder = 0 where OnOrder is NULL	
+   
+	update #tempOS
+		set RunningBalance = (
+		select sum(OR03011) 
+		from ScaCompanyDB..OR030100 
+		inner join ScaCompanyDB..OR010100 on OR01001 = OR03001 
+		where OR03001 <= Order# collate database_default 
+		and Stockcode = OR03005 collate database_default 
+		and Warehouse = OR03046 collate database_default
+		and OR01002 > '0' 
+		)		
+
+		update #tempOS
+		set WH01 = SC03003 from ScaCompanyDB..SC030100 where SC03002 = '01'  and StockCode collate database_default = SC03001 
+ 
+		update #tempOS
+		set WH14 = SC03003 from ScaCompanyDB..SC030100 where SC03002 = '03'  and StockCode collate database_default = SC03001
+
+		update #tempOS set StockBal = WH01 where Warehouse = '01'
+
+		update #tempOS set StockBal = WH14  where Warehouse = '03'
+
+		update #tempOS set RunningBalance = 0 where RunningBalance is null
+ 
+		update #tempOS
+		set FullFilledCount = 1
+		where   (StockBal - OrderQtyOrder) > 0
+		and (StockBal - RunningBalance) > 0
+		and OrderType > '0'
+ 
+		select StockCode "wstockcode", Warehouse "wWharehouse", sum(OrderQtyOrder)"wissued" 
+		into #wrk242 from #tempOS where FullFilledCount = 1 group by StockCode,warehouse 
+
+		update #tempOS set ItemsIssued = wissued from #wrk242 where StockCode = wstockcode and Warehouse = wwharehouse
+ 
+		update #tempOS
+		set PotentialCount = 1 
+		where StockBal >= OrderqtyOrder
+		and (StockBal - ItemsIssued) >= OrderQtyOrder
+		and FullFilledCount = 0
+		and OrderType > 0
+----------------------------------------------------------------------------------------------------------------------
+	select Order# as SelectedOrders,
+			SUM(FullFilledCount) as FFCount,
+			SUM(LineCount) as LCount,
+			'0' as Complete
+	into #work242s
+	from #tempOS
+	group by Order#	
+	
+	update #work242s set Complete = '1' where FFCount = LCount	
+			
+	update #work242s set Complete = '2' where LCount > FFCount and FFCount > 0
+	
+	update #work242s set Complete = '3' where FFCount = 0
+
+	--if @Department <> ' '
+	--select * from #tempOS  
+	--inner join #work242s on Order# = SelectedOrders 
+	--where OrderDate between (select convert(varchar(10), @StartDate, 120) as [YYYY-MM-DD]) and (select convert(varchar(10), @EndDate, 120) as [YYYY-MM-DD])
+ --   and O_Department = @Department
+
+	--if @Department = ' '
+	--select * from #tempOS  
+	--inner join #work242s on Order# = SelectedOrders 
+	--where OrderDate between (select convert(varchar(10), @StartDate, 120) as [YYYY-MM-DD]) and (select convert(varchar(10), @EndDate, 120) as [YYYY-MM-DD])
+
+	select @cmd ='SELECT * FROM #tempOS  '
+	select @cmd = @cmd + 'INNER JOIN #work242s ON Order# = SelectedOrders '
+	select @cmd = @cmd + 'WHERE OrderDate BETWEEN ''' +  (select convert(varchar(10), @StartDate, 120) as [YYYY-MM-DD]) + ''' and ''' +  (select convert(varchar(10), @EndDate, 120) as [YYYY-MM-DD]) + ''' '
+	
+	if NOT @Department IS NULL
+	select @cmd = @cmd + 'AND O_Department = ''' +  @Department +  ''' '
+	select @cmd = @cmd + 'AND OrderType > ''0'' '
+	
+	if NOT @Variation IS NULL
+	select @cmd = @cmd + 'AND Complete = ''' + @Variation + ''' '
+	exec (@cmd)
+
+--drop table #tempOS
+end

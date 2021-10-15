@@ -1,0 +1,9 @@
+USE ScaCompanyDB
+
+select SC03001 --stock code
+, SC01002 --DESCRIPTION
+, SC03002 --warehouse
+, SC03003 --stock balance
+
+FROM SC030100 INNER JOIN SC010100 ON SC01001=SC03001
+WHERE SC03002 = '70'

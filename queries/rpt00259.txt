@@ -1,0 +1,207 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_RPT00259_sel]    Script Date: 10/05/2021 10:50:21 ******/
+SET ANSI_NULLS OFF
+GO
+SET QUOTED_IDENTIFIER OFF
+GO
+ALTER PROCEDURE [dbo].[SSRS_RPT00259_sel]
+-- Last Production  Cost Report
+--Version 1
+--Wayne Dunn 4/1/2008
+--Details the new  margins for customers on fixed prices resulting from by production cost changes from a specific date
+
+AS
+--DROP TABLE #productiondata
+--DROP TABLE #work
+
+	DECLARE  @rundate as datetime
+	DECLARE @twelvemonthsago as datetime
+	DECLARE @day as integer						
+	
+-- Calculate Dates
+
+	-- Get the current day and use it to find the start of month date by subtracting and adding 1
+	SELECT @day = DATEPART(day, GETDATE()) 				
+	SELECT @rundate =  DATEADD(d, -@day + 1, GETDATE())		
+	SELECT @twelvemonthsago = (SELECT DATEADD(m,-12,@Rundate))
+	
+	
+CREATE TABLE #work(
+		wStockCode NVARCHAR (35) NOT NULL,
+		wDescription1 NVARCHAR(25) NULL,
+		wDescription2 NVARCHAR(25) NULL,
+		wAlternateProductGroup NVARCHAR(4) NULL,
+		wLastProductionDate DateTime NULL,
+		wLastProductionValue Numeric (28,8) NULL,
+		wCurrentSalePrice Numeric (28,8) NULL		
+	)
+	 ON [PRIMARY]
+
+CREATE TABLE #lastorderdetails(
+		oStockCode NVARCHAR (35) NOT NULL,
+		oCustomerCode NVARCHAR(10) NULL,
+		oOrderDate DateTime NULL,
+		oOrderNumber NVARCHAR(10) NULL		
+	)
+	 ON [PRIMARY]
+	
+ 
+CREATE TABLE #productiondata(
+		StockCode NVARCHAR (35) NOT NULL,
+		Description1 NVARCHAR(25) NULL,
+		Description2 NVARCHAR(25) NULL,
+		AlternateProductGroup NVARCHAR(4) NULL,
+		LastProductionDate DateTime NULL,
+		LastProductionValue Numeric (28,8) NULL,
+		CurrentSalePrice Numeric (28,8) NULL,
+		Margin numeric (28,8) Null,
+		MarginP Numeric (28,8) NULL,
+		FixedPriceCustomerCode NVARCHAR(10) NULL,
+		FixedPriceCustomerName NVARCHAR(35) NULL,
+		FixedPriceCustomerPrice NUMERIC(28,8) NULL,		
+		FdPMargin NUMERIC(28,8) NULL,
+		FdPMarginP NUMERIC (28,8) NULL,
+		LastOrderDate DateTime NULL
+	)
+	 ON [PRIMARY]
+	
+-- Get the Stock Master detail for Manufactured Products
+-- I.E. Chemical Retail (CR), Kerosene (Kero), Chemical Sales (CS), Chemical Ident (CI), Oil,  Rotomoulding (RM)
+
+INSERT INTO #work  	
+	SELECT 	SC01001, 
+			SC01002, 
+			SC01003, 
+			SC01038, 
+			NULL,
+			NULL,
+			NULL
+	FROM 		SCACompanyDb.dbo.SC010100
+	WHERE 	SC01066 = 0
+	AND 		(SC01038 = 'CR' OR SC01038 = 'KERO' OR SC01038 = 'CS' OR SC01038 = 'CI' OR SC01038 = 'OIL' OR SC01038 = 'RM')
+	
+--Update work records with the last Production Date ( last date received into stock)
+
+UPDATE #work
+	SET wLastProductionDate = 
+		(SELECT MAX(SC07002) 
+		FROM SCACompanyDb.dbo.SC070100 
+		WHERE wStockCode = SC07003 COLLATE DATABASE_DEFAULT
+		AND SC07001 = '00' 
+		)
+
+--Update work records with value when last received into stock where lastreceivedintostock is NOT NULL)
+
+UPDATE #work
+	SET wLastProductionValue = SC07005
+	FROM SCACompanyDb.dbo.SC070100 
+	WHERE wStockCode = SC07003 COLLATE DATABASE_DEFAULT
+	AND wLastProductionDate = SC07002 
+	AND wLastProductionDate IS NOT NULL
+	AND SC07001 = '00' COLLATE DATABASE_DEFAULT
+
+
+-- Update work records with  current sale price
+
+UPDATE #work
+	SET wCurrentSalePrice = 
+		(SELECT SC39004 
+		FROM SCACompanyDb.dbo.SC390100 
+		WHERE wStockCode = SC39001 COLLATE DATABASE_DEFAULT
+		AND SC39002 = '00' COLLATE DATABASE_DEFAULT
+		)
+-- Create production data from work and fixedprice table (SC180100)
+-- A-Z is to ensure only valid records are included
+-- Only include if the last receive data was in the last 12 months to avoid getting heaps of historical data
+
+INSERT INTO #productiondata
+	SELECT 
+	wStockCode ,
+	wDescription1,
+	wDescription2 ,
+	wAlternateProductGroup ,
+	wLastProductionDate ,
+	wLastProductionValue ,
+	wCurrentSalePrice,
+	NULL,
+	NULL,
+	LEFT(SC18002, 7),
+	NULL,
+	SC18008,
+	NULL,
+	NULL,
+	NULL 	
+	FROM #work 
+	Left Outer JOIN SCACompanyDb.dbo.SC180100
+	ON wStockCode = SC18003 COLLATE DATABASE_DEFAULT
+	WHERE  wCurrentSalePrice > 0 
+	AND wLastProductionDate IS NOT NULL
+	AND wLastProductionDate >@twelvemonthsago
+	AND LEFT(SC18002,1) BETWEEN 'A' AND 'Z'
+
+-- Update production data with customer name
+
+Update #productiondata
+	SET FixedPriceCustomerName = SL01002
+	FROM SCACompanyDb.dbo.SL010100
+	WHERE FixedPriceCustomerCode = SL01001  COLLATE DATABASE_DEFAULT
+
+-- Update production data by calculating margin
+
+UPDATE #productiondata
+	SET Margin = (CurrentSalePrice - LastProductionValue)
+
+-- Update Production data by calculatin margin as a percentage of saleprice
+	
+UPDATE #productiondata
+	SET MarginP =  ((Margin/CurrentSalePrice)*100)
+	WHERE  CurrentSalePrice <>0 
+
+-- Update production data by calculating margin fro  fixed price
+
+UPDATE #productiondata
+	SET FdPMargin = (FixedPriceCustomerPrice - LastProductionValue) 
+	WHERE FixedPriceCustomerPrice IS NOT NULL 
+
+-- Update Production data by calculatin margin as a percentage of fixed price
+
+UPDATE #productiondata
+	SET FdPMarginP = ((FdPMargin /FixedPriceCustomerPrice)*100)
+	WHERE FixedPriceCustomerPrice IS NOT NULL 
+	AND  FixedPriceCustomerPrice <> 0
+
+INSERT INTO #lastorderdetails
+	SELECT 	SC07003, 
+			NULL, 
+			SC07002, 
+			SC07007
+	FROM 		SCACompanyDb.dbo.SC070100
+	WHERE 	SC07001 = '01'
+
+UPDATE #lastorderdetails
+	SET oCustomerCode = OR20003
+	FROM SCACompanyDb.dbo.OR200100 
+	WHERE oOrderNumber = OR20001 COLLATE DATABASE_DEFAULT
+
+UPDATE #productiondata
+	SET LastOrderDate = 	(SELECT  MAX(oOrderDate) 
+	FROM #lastorderdetails
+	WHERE StockCode = oStockCode COLLATE DATABASE_DEFAULT
+	AND FixedPriceCustomerCode = oCustomerCode COLLATE DATABASE_DEFAULT
+	GROUP BY oCustomerCode, oStockCode)
+	
+
+--UPDATE #productiondata
+--	SET LastOrderDate = 	(SELECT MAX(SC07002) 
+	--		         	 FROM SCACompanyDb.dbo.SC070100 
+	--		          	 WHERE StockCode = SC07003 COLLATE DATABASE_DEFAULT
+	--			AND FixedPriceCustomerCode = (SELECT DISTINCT OR20003 FROM SCACompanyDB.dbo.OR200100 WHERE SC07007 = OR20001 COLLATE DATABASE_DEFAULT) COLLATE DATABASE_DEFAULT
+	--		         	 AND SC07001 = '01' 
+	--			Group BY FixedPriceCustomerCode, StockCode
+	--		
+	--			)
+
+-- Select data
+
+SELECT * FROM #productiondata

@@ -1,0 +1,76 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_RPT00264_sel]    Script Date: 10/05/2021 10:51:05 ******/
+SET ANSI_NULLS OFF
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[SSRS_RPT00264_sel]
+--Industrial Sales Backorder Report
+--Version 1
+--Wayne Dunn 10/12/08
+--List Industrial Back Orders and Available Stock
+	@StartDate as Datetime=NULL,
+	    @EndDate as Datetime=NULL
+AS
+
+CREATE TABLE #backorderlist
+	 (
+		OrderNo NCHAR (10) NULL,
+		OrderType INT  NULL,
+		CusCode NCHAR (10) NULL,
+		Description NVARCHAR (35) NULL,
+		StockCode NVARCHAR (35) NULL,
+		AltProgGrp NVARCHAR (4) NULL,
+		QtyOrdered	numeric(20,8) null,
+		OrderDate	DateTime NULL,
+		InvoiceNo NCHAR (10) NULL,
+		UnitPrice	numeric(20,8) null,
+		QtyDelivered	numeric(20,8) null,
+		DelDate	DateTime NULL,
+		StockCountL numeric(20,8) null,
+		StockCountP numeric(20,8) null,
+		CustOrdNo    NVARCHAR(20)
+	)
+	 ON [PRIMARY]
+
+INSERT INTO #backorderlist
+SELECT 	OR01001, 
+		OR01002,
+		OR01003,
+		SC01002,
+		OR03005,
+		SC01038, 
+		OR03011, 
+		OR01015, 
+		OR01021, 
+		OR03008,
+		OR03012,
+		OR01016, 
+		0,
+		0,
+		OR01072
+FROM  	 	ScaCompanyDB.dbo.SC010100
+INNER JOIN 	ScaCompanyDB.dbo.OR030100 ON (SC01001=OR03005 )
+INNER JOIN 	ScaCompanyDB.dbo.OR010100 ON OR03001=OR01001
+WHERE 	(SC01038=N'IS'  OR SC01038=N'II' )
+--WHERE 	(OR03005  LIKE '16%' )
+AND	OR01015 > '2007-01-01'
+AND		OR01002=4 
+ORDER BY 	OR01015
+
+UPDATE #backorderlist
+	SET StockCountL =  (SELECT SC03003 FROM ScaCompanyDB.dbo.SC030100 WHERE SC03001 = StockCode COLLATE Database_Default AND SC03002 = '01' COLLATE Database_Default)
+
+UPDATE #backorderlist
+	SET StockCountP =  (SELECT SC03003 FROM ScaCompanyDB.dbo.SC030100 WHERE SC03001 = StockCode COLLATE Database_Default AND SC03002 = '03' COLLATE Database_Default)
+
+UPDATE #backorderlist
+	SET StockCountL = 0 WHERE StockCountL IS NULL
+
+UPDATE #backorderlist
+	SET StockCountP = 0 WHERE StockCountP IS NULL
+
+SELECT * FROM #backorderlist where OrderDate between REPLACE(CONVERT(VARCHAR(10), @StartDate, 111), '/', '-') and REPLACE(CONVERT(VARCHAR(10), @EndDate, 111), '/', '-')
+
+--SELECT REPLACE(CONVERT(VARCHAR(10), GETDATE(), 111), '/', '-') AS [YYYY-MM-DD]

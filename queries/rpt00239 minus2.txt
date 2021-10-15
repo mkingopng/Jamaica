@@ -1,0 +1,233 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_Rpt00239_sel_new]    Script Date: 10/05/2021 10:23:02 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+ALTER PROCEDURE [dbo].[SSRS_Rpt00239_sel_new] 
+	@department			NVARCHAR(256),
+	@supplier			NVARCHAR(20)= NULL
+AS	
+
+SET NOCOUNT ON
+BEGIN
+
+	SET NOCOUNT ON;
+	SET ANSI_WARNINGS OFF
+	
+DECLARE @command as NVARCHAR(4000)
+		,@warehouse as NVARCHAR(256)
+		,@Singlew as NVARCHAR(256)
+		,@AltProdGrp as NVARCHAR(256)
+		,@Singlea as bit
+		,@CurrentDay as NVARCHAR(2)
+		,@CurrentMonth as NVARCHAR(2)
+		,@CurrentYear as NVARCHAR (4)
+		,@LastYear as NVARCHAR (4)
+		,@LastYear_1 as NVARCHAR (4)
+		,@EOL as NVARCHAR (10)
+		 
+SELECT @CurrentDay =  rtrim(substring(cast(cast(datepart(dd,GETDATE()) as INT)+100 as char),2,2)) 		
+SELECT @CurrentMonth =  rtrim(substring(cast(cast(datepart(mm,GETDATE()) as INT)+100 as char),2,2)) 
+SELECT @LastYear = rtrim(cast(datepart(yyyy,DATEADD(m,-12,GETDATE())) as char))
+SELECT @LastYear_1 = rtrim(cast(datepart(yyyy,DATEADD(m,-24,GETDATE())) as char))
+SELECT @CurrentYear = rtrim(cast(datepart(yyyy,GETDATE()) as char))
+SELECT @EOL = @CurrentYear + '-' + @CurrentMonth + '-' + @CurrentDay 
+IF exists (SELECT * FROM dbo.sysobjects WHERE id = object_id(N'[dbo].[#workdata239]') and OBJECTPROPERTY(id, N'IsUserTable') = 1)
+	DROP TABLE [dbo].[#workdata239]
+	
+IF exists (SELECT * FROM dbo.sysobjects WHERE id = object_id(N'[dbo].[#workdata2392]') and OBJECTPROPERTY(id, N'IsUserTable') = 1)
+	DROP TABLE [dbo].[#workdata2392]
+
+------------outstanding orders table--------------------------
+	create table #outstandingorders
+	(
+		o_order				nvarchar(20),	
+		o_sordertype		integer null,
+		o_cuscode   		nvarchar(10) null,		
+		o_description		nvarchar(25) null,
+		o_stockcode			nvarchar(35) null,
+		o_qtyordered		numeric (20,8) null,
+		o_date				datetime null,
+		o_invoice#			nvarchar(10) null,
+		o_unitprice			numeric (20,8) null,
+		o_qtyshipped		numeric (20,8) null,	
+		o_deliverydate		datetime null,
+		o_qtyonhand			numeric(20,8) null,
+		o_warehouse			nvarchar(6) null,
+		o_altprodgrp		nvarchar(20) null,
+		o_costcentre        nvarchar(50) null
+	)
+
+	INSERT INTO #outstandingorders
+	SELECT 	OR01001,				
+			OR01002,	
+			OR01003,
+			NULL,
+			OR03005,
+			OR03011,
+			OR01015,
+			OR01021,
+			OR03008,
+			OR03012,
+			OR01016,
+			NULL,
+			OR03046,
+			NULL,
+			SUBSTRING(OR01025,7,3)	
+	FROM		ScaCompanyDB..OR010100, ScaCompanyDB..OR030100
+	WHERE 	OR01001 = OR03001
+	AND		OR01002 >0
+   
+	UPDATE #outstandingorders
+	SET o_description = SC01002,  o_altprodgrp =SC01038
+	FROM ScaCompanyDB..SC010100
+	WHERE o_stockcode = SC01001 COLLATE DATABASE_DEFAULT
+	
+	UPDATE #outstandingorders
+	SET o_qtyonhand = SC03003
+	FROM ScaCompanyDB..SC030100
+	WHERE o_stockcode = SC03001 COLLATE DATABASE_DEFAULT
+	AND 	o_warehouse = SC03002  COLLATE DATABASE_DEFAULT
+
+--------------------------------------------------------------
+create table #POQty
+(
+		p_item				nvarchar(35),	
+		p_wh				nvarchar(6) null,
+		p_qty				numeric(20,8) null,
+)
+
+INSERT INTO #POQty
+SELECT SC03001,SC03002,SC03006 FROM ScaCompanyDB..SC030100 Where SC03002 IN ('125','126')
+ORDER BY SC03001
+
+create table #workData239
+	(
+		item				 nvarchar(35),	
+		description			 nvarchar(60),
+		QtyLCUYTD			 numeric(20,8),
+		Warehouse			 NVARCHAR(3),
+		OnHand				 NUMERIC(20,8),
+		BackOrder			 NUMERIC(20,8),
+		OnOrder			     NUMERIC(20,8),
+		ROL					 NUMERIC(20,8),
+		AverageCost			 Numeric(20,8),
+		ExtProdGrp 			 NVARCHAR(20),
+		EndofLifeDate		 DATETIME,
+		SupplierCode		 NVARCHAR(10),
+		AltProdGrp			 NVARCHAR(4),
+		Short				 Numeric(20,8),
+		Need			     Nvarchar(20),
+		QtyPerMonth			 Numeric(20,8),
+		QtyPrevYr			 Numeric(20,8),	
+		QtyPrevYr_1			 Numeric(20,8),	
+		QtyYtd				 Numeric(20,8),
+		SupplierStockCode	 NVARCHAR(35),
+		SellingPrice         NUMERIC(20,8),
+		ROL_CAL              NUMERIC(20,8),
+		Short_CAL            NUMERIC(20,8),
+        ABCCode				NVARCHAR(1),
+        SafetyStock			Numeric(20,8),
+        POQty				Numeric(20,8),
+        OSQty				Numeric(20,8),
+        YDTAvg				Numeric(20,8),
+        LeadTime			INT
+		)		
+
+--SC01074 NVARCHAR(1)- ABC Code 
+--SC03092 Numeric (20,8)Safety Stock 
+--MIN
+--MAX
+--SC03006 Numeric (20,8)P/O Qty - Update Order Qty in 01-14/125-126
+--O/S Qty - Update from oustanding orders table
+--12MntAvg - Update YTD/12
+--UOM
+--EOQ
+--SC03114 INT(0)LeadTime - 
+--Suggested
+
+SELECT @AltProdGrp = (Select AlternateProductGroup From KK_Departments Where Department = @Department)
+SELECT @Singlea = (Select Singlea From KK_Departments Where Department = @Department)
+SELECT @warehouse = (Select Warehouse From KK_Departments Where Department = @Department)
+SELECT @Singlew = (Select Singlew From KK_Departments Where Department = @Department)
+IF @supplier=''
+Select @supplier=NULL
+
+SELECT @Command = 'INSERT INTO #workData239 '
+SELECT @Command = @command + 'SELECT '
+SELECT @Command = @command + 'SC01001,  SC01002  + '' '' + SC01003, SC01086, SC03002, SC03003, SC03005, SC03006, '
+SELECT @Command = @command + 'SC03010, SC03057, SC01023, SC01123,SC01058, SC01038, 0, ''__________'', NULL, NULL,NULL,NULL,SC01060,SC01004,NULL,NULL, '
+--
+SELECT @Command = @command + 'SC01074, SC03092, 0, 0, 0, SC03114 '
+--
+SELECT @command = @command + 'FROM ScaCompanyDB..SC010100 '
+SELECT @command = @command + 'INNER JOIN ScaCompanyDB..SC030100 '
+SELECT @command = @command + 'ON SC01001=SC03001 ' 
+IF @Singlea = 1 
+	SELECT @command = @command +  'WHERE SC01038  =  ''' +  @AltProdGrp  +  ''' '
+Else
+	SELECT @command = @command +  'WHERE SC01038  IN ' +  @AltProdGrp + ' ' collate database_default
+--IF @Singlew = 1 
+--	SELECT @command = @command +  'AND SC03002  =  ''' +  @warehouse  +  ''' '
+--Else
+--	SELECT @command = @command +  'AND SC03002  IN ' +  @warehouse + ' ' 
+	SELECT @command = @command +  'AND SC03002  IN  (''01'',''14'') ' 
+
+IF @supplier IS NOT NULL
+SELECT @command = @command +  'AND SC01058   =  ''' + @supplier  +  ''' '
+
+SELECT @command = @command + 'AND SC01023 <> ''OBSOLETE'' ' 
+SELECT @command = @command + 'AND SC01023 <> ''DNR'' ' 
+SELECT @command = @command + 'AND SC01123 > ''' + @EOL  +  ''' '
+SELECT @command = @command + 'ORDER BY SC01001,SC03002'
+EXEC (@command)
+
+UPDATE #workData239 
+	SET Short = ABS(OnHand - ROL)
+    WHERE ROL > ONhand
+
+SELECT @command = 'UPDATE #workData239 '
+SELECT @command = @command + 'SET QtyPrevYr = (SELECT (ABS(SUM(Qty))) FROM ScaCompanyDB..QtyYTD WHERE cast(datepart(yyyy,TDate) as char) = ''' + @LastYear + ''' AND TType = ''01'' AND StockCode = item Collate Database_Default AND Wh = warehouse Collate database_default)'
+EXEC (@command)
+SELECT @command = 'UPDATE #workData239 '
+SELECT @command = @command + 'SET QtyPrevYr_1 = (SELECT (ABS(SUM(Qty))) FROM ScaCompanyDB..QtyYTD WHERE cast(datepart(yyyy,TDate) as char) = ''' + @LastYear_1 + ''' AND TType = ''01'' AND StockCode = item Collate Database_Default AND Wh = warehouse Collate database_default)'
+
+EXEC (@command) 
+	
+SELECT @command = 'UPDATE #workData239 '
+SELECT @command = @command + 'SET QtyYtd = (SELECT ABS(SUM(Qty)) FROM ScaCompanyDB..QtyYTD WHERE cast(datepart(yyyy,TDate) as char) = ''' + @CurrentYear + ''' AND TType = ''01'' AND StockCode = item Collate Database_Default AND Wh = warehouse Collate database_default)'
+
+EXEC (@command)
+
+UPDATE #workData239 
+	SET QtyPerMonth = (QtyYtd / @CurrentMonth)
+	
+UPDATE #workData239 
+	SET ROL_CAL = QtyPerMonth/5
+	
+UPDATE #workData239 
+	SET Short_CAL = (ROL_CAL - OnHand) + (BackOrder - OnOrder)
+
+UPDATE #workData239 
+SET POQty = p_qty
+FROM #POQty
+WHERE p_item = item COLLATE DATABASE_DEFAULT and Warehouse IN ('01','14')
+
+--update OSQty
+UPDATE #workData239
+SET OSQty =  o_qtyordered
+FROM #outstandingorders
+WHERE o_stockcode = #workData239..item COLLATE DATABASE_DEFAULT and o_warehouse in ('01','14')
+
+--update YTDAvg
+UPDATE #workData239 
+	SET YDTAvg = QtyYtd/12
+
+SELECT a.*, b.SC23002 as Warehouse_Name FROM #workData239 a
+inner join ScaCompanyDB..SC230100 b
+on b.SC23001=a.Warehouse collate database_default
+order by a.item, a.Warehouse
+
+END

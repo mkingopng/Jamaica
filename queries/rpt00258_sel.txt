@@ -1,0 +1,48 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_RPT00258_sel]    Script Date: 10/05/2021 10:49:30 ******/
+SET ANSI_NULLS OFF
+GO
+SET QUOTED_IDENTIFIER OFF
+GO
+ALTER PROCEDURE [dbo].[SSRS_RPT00258_sel]
+
+-- 	Daily Report on Invoices Produced
+AS
+
+CREATE TABLE #OrderSummary
+	(
+	Order# NVARCHAR(10),
+	Cuscode NVARCHAR(10) NULL ,
+	Sman NVARCHAR(3) NULL,
+	InvoiceDate DATETIME NULL,
+	InvoiceNumber NVARCHAR(15) NULL,
+	CostCentre NVARCHAR (2) NULL,
+	CostCentreName NVARCHAR (30) NULL
+	)
+
+INSERT INTO #OrderSummary
+	SELECT DISTINCT DL_Order#, 
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL,
+	NULL
+	FROM KK_DailyOrders
+
+UPDATE #OrderSummary
+	SET 	Cuscode = DL_CusCode,
+		Sman = DL_Sman,
+		InvoiceDate = DL_InvoiceDate,
+		InvoiceNumber = DL_InvoiceNumber,
+		CostCentre = DL_CC
+	FROM KK_DailyOrders
+	WHERE Order# = DL_Order# Collate Database_default
+
+UPDATE #OrderSummary 
+	SET 	#OrderSummary.CostCentreName = c.CostCentreName
+	FROM 	KK_CostCentre c
+	Where   #OrderSummary.CostCentre = c.CostCentre Collate Database_default 
+
+SELECT * FROM #OrderSummary order by Invoicenumber

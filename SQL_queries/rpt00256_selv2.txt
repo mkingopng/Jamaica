@@ -1,0 +1,63 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_Rpt00256_v2_sel]    Script Date: 10/05/2021 10:47:36 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- ======================================================
+-- Author:		Isaac Kababa
+-- Create date: 05/01/2018
+-- Description:	Credit Note Transactions filtered by Year
+-- =======================================================
+ALTER PROCEDURE [dbo].[SSRS_Rpt00256_v2_sel]
+
+--DECLARE
+		@YearValue NVARCHAR(4)
+
+--SELECT @YearValue='2020'
+
+AS
+SELECT 
+    T1.ST03009		"OrderNumber" 
+ ,  T1.ST03010		"OrderType"
+ ,  T1.ST03008		"CustomerCode" 
+ ,  T3.SL01002		"CustomerName" 
+ ,  T1.ST03015		"OrderDate" 
+ ,  T1.ST03014		"Invoice#"
+ ,  T1.ST03017		"StockCode" 
+ ,  T2.SC01002 + '' + T2.SC01003    "Description" 
+ , SUM(T1.ST03020)  "Qty" 
+ ,  T1.ST03021		"Price" 
+ , SUM((T1.ST03020 * T1.ST03021) - (T1.ST03020 * T1.ST03021 * T1.ST03022 / 100))   "LineAmount" 
+ ,  T4.OR20024		"OrderValue"
+ , SUBSTRING(T1.ST03011,7,6)    "CostCentre" 
+ ,  T1.ST03064		"ReasonCode"
+-- ,  T5.OR24005 +' '+ T5.OR24006		"Remarks/Comments"
+-- ,  T5.OR24005 "Remarks/Comments"
+,' ' "Remarks/Comments"
+ FROM [ScaCompanyDB]..ST030100 T1										--filter from invoice stats table  
+ INNER JOIN    [ScaCompanyDB]..SC010100 T2 ON   T1.ST03017 = T2.SC01001 --link stock master table for stock description
+ INNER JOIN    [ScaCompanyDB]..SL010100 T3 ON   T1.ST03008 = T3.SL01001 --link customer master table for customer description
+ INNER JOIN    [ScaCompanyDB]..OR200100 T4 ON   T1.ST03009 = T4.OR20001 --link order header table for order value
+-- INNER JOIN    [ScaCompanyDB]..OR240100 T5 ON   T1.ST03009 = T5.OR24001 --link order text lines tables for remarks/comments
+WHERE RTRIM(CAST(DATEPART(yyyy,T1.ST03015) AS CHAR))   =  @YearValue
+AND T1.ST03010 IN ('7','8')
+--AND T5.OR24005 <> ' '
+GROUP BY  
+   T1.ST03015
+ , T1.ST03009
+ , T1.ST03010
+ , T1.ST03008
+ , T3.SL01002
+ , T1.ST03014
+ , T1.ST03017
+ , T2.SC01002
+ , T2.SC01003
+ , T1.ST03020
+ , T1.ST03021
+ , T4.OR20024
+ , SUBSTRING(T1.ST03011,7,6)
+ , T1.ST03064
+-- , T5.OR24005
+-- , T5.OR24006

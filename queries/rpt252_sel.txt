@@ -1,0 +1,143 @@
+USE [IscalaAnalysis]
+GO
+/****** Object:  StoredProcedure [dbo].[SSRS_RPT00252_sel]    Script Date: 10/05/2021 10:45:43 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		Wayne Dunn
+-- Create date: 12/07/2010
+-- Description:	Margin Report -  measured against last landed cost
+-- =============================================
+ALTER PROCEDURE [dbo].[SSRS_RPT00252_sel] 
+	-- Add the parameters for the stored procedure here
+	@Department NVARCHAR(256)
+AS
+
+DECLARE @cmd as NVARCHAR(2048),
+	@AlternateProductGroup as NVARCHAR(256),
+	@SingleA as bit
+
+--
+
+-- This is to address SSRS's inability to support multiple variable paramaters when using stored procedures
+-- The users supplies the Division/Department and we apply the cost centres
+SELECT @AlternateProductGroup = (Select AlternateProductGroup From KK_Departments Where Department = @Department)
+SELECT @SingleA = (Select SingleA From KK_Departments Where Department = @Department)
+
+	create table #BatchRecord
+	(
+		b_StockCode		nvarchar(35),		
+		b_Warehouse		nchar(6),
+		b_BatchDate 		datetime null,
+		b_BatchID		nchar(12) null,
+		b_BatchCostUnit	numeric(20,8)null
+	)
+
+	create table #StockRecord
+	(
+		r_StockCode			nvarchar(35),	
+		r_Description			nvarchar(25) null,
+		r_Description2   		nvarchar(25) null,
+		r_CostCentre			nvarchar(50) null,
+		r_AltProdGrp			nvarchar(4) null,
+		r_ItemCreateDate		datetime null,		
+		r_Warehouse			nvarchar(6),
+		r_CurrentAverageCost		numeric(20,8) null,
+		r_OnHandQty			numeric (20,8) null,
+		r_ReOrderLevel			numeric(20,8) null,
+		r_OnHandValue			numeric (20,8) null,
+		r_StockHistoryTransactionType	nchar (2)null,
+		r_StockHistoryTransactionDate   datetime null,
+		r_StockHistoryTransaction         	numeric(20,8) null,
+		r_Offset				int null,
+		r_Division			nvarchar(32) null,
+		r_Location                       	nvarchar(10) null,
+		r_SortValue			nvarchar(50) null,
+		r_BatchID			nchar(12 )null,
+		r_BatchDate			datetime null,
+		r_LastLandedCost		numeric(20,8)	null,
+		r_RetailPrice			numeric(20,8)	null	
+	)
+
+
+--Get last batch record for each item by warehouse
+
+	INSERT INTO #BatchRecord
+	SELECT 	b_StockCode = SC33001,	
+			b_Warehouse = SC33002,			
+			b_BatchDate = MAX(SC33013),
+			b_BatchID =NULL,
+			b_batchCostUnit = NULL			
+	FROM		ScaCompanyDB..SC330100	
+	Group By 	SC33001, SC33002
+
+	UPDATE #BatchRecord
+			SET b_BatchID = SC33003,
+			      b_BatchCostUnit = SC33023
+	FROM ScaCompanyDB..SC330100
+			WHERE	b_StockCode	=SC33001 COLLATE DATABASE_DEFAULT	
+			AND		b_Warehouse  = SC33002 COLLATE DATABASE_DEFAULT
+			AND		b_BatchDate = SC33013
+
+--Get All Warehouse Records
+	INSERT INTO #StockRecord
+	SELECT 	r_StockCode 		= SC03001,				
+			r_Description 		= NULL,	
+			r_Description2		= NULL,
+			r_CostCentre		= NULL,
+			r_AltProdGrp 		=NULL,
+			r_ItemCreateDate 	= NULL,
+			r_Warehouse 		= SC03002,
+			r_CurrentAverageCost 	= SC03057,
+			r_OnHandQty 		= SC03003,
+			r_ReOrderLevel 	= SC03010,			
+			r_OnHandValue 	= NULL,
+			r_StockHistoryTransactionType = NULL,
+			r_StockHistoryTransactionDate = NULL,
+			r_StockHistoryTransaction= NULL,
+			r_Offset 		= NULL,			
+			r_Division 		= NULL,
+			r_Location 		= NULL,
+			r_SortValue 		= NULL,
+			r_BatchID 		= NULL,
+			r_BatchDate 		=NULL,
+			r_LastLandedCost	 =NULL,
+			r_RetailPrice 		=NULL	
+	FROM	ScaCompanyDB..SC030100
+	WHERE 	SC03003 > 0
+
+	
+-- Calculate  total value 
+	UPDATE 	#StockRecord
+	SET  	r_OnHandValue = ( r_CurrentAverageCost *r_OnHandQty)
+	
+
+-- Fill in Missing Data
+	EXEC 		KK_FillStockReportData
+	
+-- Get BatchDetail
+	UPDATE 	#StockRecord
+	SET		r_BatchID		= b_BatchID,
+			r_BatchDate		= b_BatchDate,
+			r_LastLandedCost	= b_BatchCostUnit
+	FROM 		#BatchRecord
+	WHERE	r_StockCode = b_StockCode COLLATE DATABASE_DEFAULT
+	AND		r_Warehouse = b_Warehouse COLLATE DATABASE_DEFAULT
+
+-- Get Retail Price
+	UPDATE 	#StockRecord
+	SET		r_RetailPrice	= SC39004
+	FROM 		ScaCompanyDB..SC390100
+	WHERE	r_StockCode = SC39001 COLLATE DATABASE_DEFAULT
+	AND 		SC39002 = '00'
+
+SELECT @cmd = 'SELECT * FROM #StockRecord  '
+	IF @SingleA = 1 
+	SELECT @cmd = @cmd +  'WHERE r_AltProdGrp  =  ' +  @AlternateProductGroup  +  ' '
+Else
+	SELECT @cmd = @cmd +  'WHERE r_AltProdGrp  IN ' +  @AlternateProductGroup + ' '
+SELECT @cmd = @cmd + 'Order by r_StockCode, r_Warehouse '
+SELECT @cmd
+EXECUTE (@cmd)
