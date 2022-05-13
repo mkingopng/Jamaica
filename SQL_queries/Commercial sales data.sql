@@ -13,17 +13,17 @@ SELECT
     SUBSTRING(ST03011,13,6) AS 'ProductGroup',
     ST03021 AS 'UnitPrice'
 
- FROM [ScaCompanyDB]..ST030100 T1 INNER JOIN [ScaCompanyDB]..SC010100
+ FROM [ScaCompanyDB]..ST030100 T1    INNER JOIN [ScaCompanyDB]..SC010100
                                   ON ST03017 = SC01001
 
-                                  INNER JOIN [ScaCompanyDB]..SL010100
-                                  ON ST03008 = SL01001
+                                  INNER JOIN    [ScaCompanyDB]..SL010100
+                                  ON   ST03008 = SL01001
 
-                                  LEFT OUTER JOIN [ScaCompanyDB]..SY240100 T4
-                                  ON SC01037 = T4.SY24002  AND 'IB' = SY24001
+                                  LEFT OUTER JOIN    [ScaCompanyDB]..SY240100 T4
+                                  ON   SC01037 = T4.SY24002  AND 'IB' = SY24001
 
-WHERE SUBSTRING(SL01017,1,6) = '001020'
-	AND rtrim(cast(datepart(yyyy,ST03015) AS char))+'M'+substring(cast(cast(datepart(mm,ST03015) AS INT)+100 AS char),2,2) Between '2020M10' AND '2021M4'
+WHERE SUBSTRING(SL01017,1,6)   =  '001020'
+	AND rtrim(cast(datepart(yyyy,ST03015) as char))+'M'+substring(cast(cast(datepart(mm,ST03015) AS INT)+100 AS char),2,2) Between '2020M10' AND '2021M4'
 	AND	SUBSTRING(ST03011,7,6) = '11' OR SUBSTRING(ST03011,7,6) = '21'	  
 	
 
